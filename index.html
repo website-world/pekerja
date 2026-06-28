@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Presensi Karyawan</title>
-  <!-- PWA Manifest (data URI) -->
   <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Presensi%20Karyawan%22%2C%22short_name%22%3A%22Presensi%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23111111%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22icon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
   <meta name="theme-color" content="#111111">
   <style>
@@ -368,6 +367,9 @@
     // Enable offline persistence
     db.enablePersistence().catch(err => console.log('Offline persistence error:', err));
 
+    // Pastikan sesi tetap tersimpan
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.log('Persistence error:', err));
+
     // Global state
     let currentUser = null;       // Firestore user data
     let firebaseUser = null;      // Firebase Auth user
@@ -386,19 +388,37 @@
     auth.onAuthStateChanged(async (user) => {
       if (user) {
         firebaseUser = user;
-        const userDoc = await db.collection('users').doc(user.uid).get();
-        if (userDoc.exists && userDoc.data().role === 'karyawan') {
-          currentUser = userDoc.data();
-          currentUser.uid = user.uid;
-          showMainPage();
-        } else {
-          await auth.signOut();
-          showPage('login');
-          alert('Akun tidak terdaftar sebagai karyawan.');
+        try {
+          const userDoc = await db.collection('users').doc(user.uid).get();
+          if (userDoc.exists && userDoc.data().role === 'karyawan') {
+            currentUser = userDoc.data();
+            currentUser.uid = user.uid;
+            // Simpan ke localStorage sebagai fallback
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            showMainPage();
+          } else {
+            // Role tidak sesuai
+            await auth.signOut();
+            showPage('login');
+            alert('Akun tidak terdaftar sebagai karyawan.');
+          }
+        } catch (err) {
+          console.error('Gagal memuat data user:', err);
+          // Coba gunakan cache lokal jika ada
+          const cached = localStorage.getItem('currentUser');
+          if (cached) {
+            currentUser = JSON.parse(cached);
+            showMainPage();
+            showToast('Menggunakan data offline');
+          } else {
+            showPage('login');
+            alert('Tidak dapat memuat data. Periksa koneksi Anda.');
+          }
         }
       } else {
         firebaseUser = null;
         currentUser = null;
+        localStorage.removeItem('currentUser');
         showPage('login');
       }
     });
@@ -452,12 +472,13 @@
 
     function updateUserUI() {
       if (!currentUser) return;
-      const initials = getInitials(currentUser.name);
+      const name = currentUser.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
+      const initials = getInitials(name);
       document.getElementById('profile-avatar').textContent = initials;
       document.getElementById('drop-avatar').textContent = initials;
-      document.getElementById('drop-name').textContent = currentUser.name;
-      document.getElementById('drop-email').textContent = currentUser.email;
-      document.getElementById('greet-name').textContent = currentUser.name;
+      document.getElementById('drop-name').textContent = name;
+      document.getElementById('drop-email').textContent = currentUser.email || '';
+      document.getElementById('greet-name').textContent = name;
     }
 
     /* ---------- MAIN FEATURES ---------- */
@@ -526,6 +547,7 @@
 
     /* ---------- ATTENDANCE HISTORY ---------- */
     function loadAttendanceHistory() {
+      if (!currentUser) return;
       const uid = currentUser.uid;
       db.collection('attendances')
         .where('uid', '==', uid)
@@ -563,7 +585,7 @@
 
     function setupMessaging() {
       messaging.requestPermission()
-        .then(() => messaging.getToken({ vapidKey: 'BOSWNBr2syHHHDvWIqj8k9M8COI7ewcpyFO1CUPv9Yv6XRlS7MIRlzFKblGUlTLhHgXNu-7JPDbogyH08N9v0bk' }))
+        .then(() => messaging.getToken({ vapidKey: 'YOUR_VAPID_KEY' }))
         .then(token => {
           if (token && currentUser) {
             db.collection('users').doc(currentUser.uid).update({ fcmToken: token }).catch(() => {});
@@ -683,14 +705,16 @@
       }
       const reader = new FileReader();
       reader.onload = async () => {
-        const photoBase64 = reader.result; // data:image/jpeg;base64,...
+        const photoBase64 = reader.result;
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = pad(now.getHours()) + ':' + pad(now.getMinutes());
+        // Fallback nama
+        const name = currentUser.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
         try {
           await db.collection('attendances').add({
             uid: currentUser.uid,
-            name: currentUser.name,
+            name: name,
             date: dateStr,
             time: timeStr,
             location: {
