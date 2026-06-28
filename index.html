@@ -563,7 +563,7 @@
 
     function setupMessaging() {
       messaging.requestPermission()
-        .then(() => messaging.getToken({ vapidKey: 'YOUR_VAPID_KEY' }))
+        .then(() => messaging.getToken({ vapidKey: 'BOSWNBr2syHHHDvWIqj8k9M8COI7ewcpyFO1CUPv9Yv6XRlS7MIRlzFKblGUlTLhHgXNu-7JPDbogyH08N9v0bk' }))
         .then(token => {
           if (token && currentUser) {
             db.collection('users').doc(currentUser.uid).update({ fcmToken: token }).catch(() => {});
