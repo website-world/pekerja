@@ -7,7 +7,7 @@
   <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Presensi%20Karyawan%22%2C%22short_name%22%3A%22Presensi%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23111111%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22icon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
   <meta name="theme-color" content="#111111">
   <style>
-    /* CSS sama seperti versi sebelumnya, tidak berubah */
+    /* CSS persis sama dengan sebelumnya, tidak diubah */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --white: #ffffff;
@@ -358,20 +358,10 @@
     const db = firebase.firestore();
     const messaging = firebase.messaging();
 
-    // Offline persistence
-    db.enablePersistence().catch(err => console.log('Offline persistence error:', err));
+    db.enablePersistence().catch(console.log);
 
-    // PENTING: atur persistence LOCAL agar sesi tetap tersimpan meski tab ditutup
-    (async () => {
-      try {
-        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
-        console.log('Session persistence set to LOCAL');
-      } catch (err) {
-        console.error('Persistence error:', err);
-      }
-      // Sekarang baru pasang listener
-      setupAuthListener();
-    })();
+    // Set persistence LOCAL segera
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error);
 
     let currentUser = null;
     let firebaseUser = null;
@@ -380,52 +370,96 @@
     let mediaStream = null;
     let capturedBlob = null;
 
+    // Cegah logout mendadak: saat token refresh, kita simpan status login
+    let isLoggingOut = false;
+
     function showPage(id) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('page-' + id).classList.add('active');
     }
 
-    function setupAuthListener() {
-      auth.onAuthStateChanged(async (user) => {
-        if (user) {
-          firebaseUser = user;
-          try {
-            const userDoc = await db.collection('users').doc(user.uid).get();
-            if (userDoc.exists && userDoc.data().role === 'karyawan') {
-              currentUser = userDoc.data();
-              currentUser.uid = user.uid;
-              localStorage.setItem('currentUser', JSON.stringify(currentUser));
-              showMainPage();
-            } else {
-              // Role tidak sesuai, logout
-              await auth.signOut();
-              localStorage.removeItem('currentUser');
-              showPage('login');
-              alert('Akun tidak terdaftar sebagai karyawan.');
-            }
-          } catch (err) {
-            console.error('Gagal memuat data user:', err);
-            // Gunakan cache jika ada
+    // Inisialisasi listener auth dengan penanganan khusus
+    auth.onAuthStateChanged(async (user) => {
+      if (isLoggingOut) {
+        // Jika sedang proses logout manual, jangan ganggu
+        return;
+      }
+
+      if (user) {
+        firebaseUser = user;
+        try {
+          const userDoc = await db.collection('users').doc(user.uid).get();
+          if (userDoc.exists && userDoc.data().role === 'karyawan') {
+            currentUser = userDoc.data();
+            currentUser.uid = user.uid;
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            showMainPage();
+          } else {
+            // Role tidak sesuai – tapi jangan logout otomatis, cukup beri tahu
+            console.warn('Role tidak sesuai. Tetap gunakan cache jika ada.');
             const cached = localStorage.getItem('currentUser');
             if (cached) {
               currentUser = JSON.parse(cached);
               showMainPage();
-              showToast('Menggunakan data offline');
+              showToast('Beberapa data mungkin tidak terbaru.');
             } else {
-              showPage('login');
-              alert('Tidak dapat memuat data. Periksa koneksi Anda.');
+              // Benar-benar tidak valid, baru logout
+              await performLogout();
+              alert('Akun tidak terdaftar sebagai karyawan.');
             }
           }
+        } catch (err) {
+          console.error('Gagal memuat data user:', err);
+          const cached = localStorage.getItem('currentUser');
+          if (cached) {
+            currentUser = JSON.parse(cached);
+            showMainPage();
+            showToast('Menggunakan data offline');
+          } else if (firebaseUser) {
+            // Jika tidak ada cache tapi user masih login, tetap di halaman utama dengan data minimal
+            currentUser = { uid: user.uid, name: 'Pengguna', email: user.email, role: 'karyawan' };
+            showMainPage();
+            showToast('Mode terbatas – periksa koneksi.');
+          } else {
+            showPage('login');
+          }
+        }
+      } else {
+        // user null – jangan langsung panik, cek apakah auth.currentUser masih ada
+        const stillLoggedIn = auth.currentUser;
+        if (stillLoggedIn) {
+          // Token sedang refresh, gunakan cache
+          console.log('Token refresh – menggunakan cache');
+          const cached = localStorage.getItem('currentUser');
+          if (cached) {
+            currentUser = JSON.parse(cached);
+            showMainPage();
+          } else {
+            // fallback terakhir: jangan tampilkan login, cukup diamkan
+            console.warn('Tidak ada cache, tetapi auth.currentUser ada. Menunggu...');
+          }
         } else {
+          // Benar-benar tidak ada sesi
           firebaseUser = null;
           currentUser = null;
           localStorage.removeItem('currentUser');
           showPage('login');
         }
-      });
+      }
+    });
+
+    async function performLogout() {
+      isLoggingOut = true;
+      await auth.signOut();
+      localStorage.removeItem('currentUser');
+      currentUser = null;
+      firebaseUser = null;
+      showPage('login');
+      isLoggingOut = false;
     }
 
     function showMainPage() {
+      if (document.getElementById('page-main').classList.contains('active')) return;
       showPage('main');
       updateUserUI();
       startMainFeatures();
@@ -440,7 +474,7 @@
       errorEl.style.display = 'none';
       try {
         await auth.signInWithEmailAndPassword(email, pass);
-        // onAuthStateChanged akan menangani
+        // onAuthStateChanged akan menangani selanjutnya
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
@@ -455,9 +489,9 @@
       this.classList.toggle('active', isPass);
     });
 
-    // Logout
+    // Logout manual
     document.getElementById('btn-logout').addEventListener('click', async () => {
-      await auth.signOut();
+      await performLogout();
     });
 
     // Profile dropdown
@@ -477,13 +511,13 @@
     }
 
     function updateUserUI() {
-      if (!currentUser) return;
-      const name = currentUser.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
+      const name = currentUser?.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
+      const email = currentUser?.email || '';
       const initials = getInitials(name);
       document.getElementById('profile-avatar').textContent = initials;
       document.getElementById('drop-avatar').textContent = initials;
       document.getElementById('drop-name').textContent = name;
-      document.getElementById('drop-email').textContent = currentUser.email || '';
+      document.getElementById('drop-email').textContent = email;
       document.getElementById('greet-name').textContent = name;
     }
 
@@ -491,7 +525,7 @@
       updateGreeting();
       startClock();
       requestLocation();
-      loadAttendanceHistory();
+      if (currentUser?.uid) loadAttendanceHistory();
       setupMessaging();
     }
 
@@ -550,7 +584,6 @@
     }
 
     function loadAttendanceHistory() {
-      if (!currentUser) return;
       const uid = currentUser.uid;
       db.collection('attendances')
         .where('uid', '==', uid)
@@ -710,7 +743,7 @@
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = pad(now.getHours()) + ':' + pad(now.getMinutes());
-        const name = currentUser.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
+        const name = currentUser?.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
         try {
           await db.collection('attendances').add({
             uid: currentUser.uid,
