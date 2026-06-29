@@ -7,6 +7,7 @@
   <link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Presensi%20Karyawan%22%2C%22short_name%22%3A%22Presensi%22%2C%22start_url%22%3A%22.%2F%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23ffffff%22%2C%22theme_color%22%3A%22%23111111%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22icon-192.png%22%2C%22sizes%22%3A%22192x192%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
   <meta name="theme-color" content="#111111">
   <style>
+    /* CSS sama seperti versi sebelumnya, tidak berubah */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
       --white: #ffffff;
@@ -35,7 +36,6 @@
     ul { list-style: none; }
     input { font-family: var(--font); }
 
-    /* PAGE VIEWS */
     .page { display: none; min-height: var(--vh); }
     .page.active { display: flex; flex-direction: column; animation: pageIn 0.32s ease forwards; }
     @keyframes pageIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
@@ -48,7 +48,6 @@
     .btn-dark:active { background: #333; }
     .btn-dark:disabled { background: var(--gray-mid); color: var(--gray-text); cursor: not-allowed; }
 
-    /* LOGIN */
     .login-page { background: var(--white); }
     .login-wrap { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 36px 28px 40px; min-height: var(--vh); }
     .login-brand { display: flex; flex-direction: column; align-items: center; margin-bottom: 48px; }
@@ -77,7 +76,6 @@
     .login-submit { margin-top: 10px; }
     .login-foot { margin-top: 28px; font-size: 10.5px; letter-spacing: 0.03em; color: var(--gray-text); text-align: center; line-height: 1.6; }
 
-    /* HEADER */
     .app-header { position: sticky; top: 0; z-index: 50; background: var(--white); border-bottom: 1px solid var(--gray-mid); height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 16px; }
     .app-header-title { font-size: 13px; font-weight: 700; letter-spacing: 0.25em; text-transform: uppercase; }
     .icon-btn { background: none; border: none; cursor: pointer; padding: 6px; display: flex; align-items: center; justify-content: center; position: relative; color: var(--black); width: 38px; height: 38px; }
@@ -98,7 +96,6 @@
     .sheet-item-danger svg { color: var(--red); }
     .sheet-divider { height: 1px; background: var(--gray-mid); margin: 4px 0; }
 
-    /* MAIN */
     .main-page { background: var(--gray-light); }
     .main-scroll { flex: 1; overflow-y: auto; padding: 16px 16px 0; display: flex; flex-direction: column; gap: 14px; }
     .scroll-spacer { height: 100px; flex-shrink: 0; }
@@ -133,7 +130,6 @@
     .fab-presensi { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: 62px; height: 62px; border-radius: 50%; background: var(--black); color: var(--white); border: none; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 6px 20px rgba(0,0,0,0.28); z-index: 60; }
     .fab-presensi:active { transform: translateX(-50%) scale(0.93); }
 
-    /* NOTIFICATION PAGE */
     .notif-list { display: flex; flex-direction: column; }
     .notif-item { display: flex; gap: 12px; padding: 16px; border-bottom: 1px solid var(--gray-mid); position: relative; }
     .notif-item.unread { background: var(--gray-light); }
@@ -144,7 +140,6 @@
     .notif-time { font-size: 9.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-text); }
     .notif-empty { text-align: center; padding: 80px 24px; color: var(--gray-text); font-size: 12px; }
 
-    /* CAMERA PAGE */
     .presensi-page { background: #000; }
     .cam-stage { position: relative; flex: 1; background: #000; overflow: hidden; display: flex; align-items: center; justify-content: center; }
     #cam-video { width: 100%; height: 100%; object-fit: cover; display: block; transform: scaleX(-1); }
@@ -162,7 +157,6 @@
     .cam-controls-confirm .cam-cancel { width: auto; flex-shrink: 0; }
     .cam-confirm-btn { flex: 1; }
 
-    /* TOAST */
     .toast { position: fixed; bottom: 110px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--black); color: var(--white); padding: 13px 24px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; z-index: 300; opacity: 0; pointer-events: none; transition: opacity 0.25s, transform 0.25s; text-align: center; max-width: 85%; border-radius: 4px; }
     .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 
@@ -364,64 +358,72 @@
     const db = firebase.firestore();
     const messaging = firebase.messaging();
 
-    // Enable offline persistence
+    // Offline persistence
     db.enablePersistence().catch(err => console.log('Offline persistence error:', err));
 
-    // Pastikan sesi tetap tersimpan
-    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => console.log('Persistence error:', err));
+    // PENTING: atur persistence LOCAL agar sesi tetap tersimpan meski tab ditutup
+    (async () => {
+      try {
+        await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+        console.log('Session persistence set to LOCAL');
+      } catch (err) {
+        console.error('Persistence error:', err);
+      }
+      // Sekarang baru pasang listener
+      setupAuthListener();
+    })();
 
-    // Global state
-    let currentUser = null;       // Firestore user data
-    let firebaseUser = null;      // Firebase Auth user
+    let currentUser = null;
+    let firebaseUser = null;
     let locationText = 'Mendeteksi lokasi…';
     let locationCoords = null;
     let mediaStream = null;
     let capturedBlob = null;
 
-    /* ---------- PAGE NAVIGATION ---------- */
     function showPage(id) {
       document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
       document.getElementById('page-' + id).classList.add('active');
     }
 
-    /* ---------- AUTH ---------- */
-    auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        firebaseUser = user;
-        try {
-          const userDoc = await db.collection('users').doc(user.uid).get();
-          if (userDoc.exists && userDoc.data().role === 'karyawan') {
-            currentUser = userDoc.data();
-            currentUser.uid = user.uid;
-            // Simpan ke localStorage sebagai fallback
-            localStorage.setItem('currentUser', JSON.stringify(currentUser));
-            showMainPage();
-          } else {
-            // Role tidak sesuai
-            await auth.signOut();
-            showPage('login');
-            alert('Akun tidak terdaftar sebagai karyawan.');
+    function setupAuthListener() {
+      auth.onAuthStateChanged(async (user) => {
+        if (user) {
+          firebaseUser = user;
+          try {
+            const userDoc = await db.collection('users').doc(user.uid).get();
+            if (userDoc.exists && userDoc.data().role === 'karyawan') {
+              currentUser = userDoc.data();
+              currentUser.uid = user.uid;
+              localStorage.setItem('currentUser', JSON.stringify(currentUser));
+              showMainPage();
+            } else {
+              // Role tidak sesuai, logout
+              await auth.signOut();
+              localStorage.removeItem('currentUser');
+              showPage('login');
+              alert('Akun tidak terdaftar sebagai karyawan.');
+            }
+          } catch (err) {
+            console.error('Gagal memuat data user:', err);
+            // Gunakan cache jika ada
+            const cached = localStorage.getItem('currentUser');
+            if (cached) {
+              currentUser = JSON.parse(cached);
+              showMainPage();
+              showToast('Menggunakan data offline');
+            } else {
+              showPage('login');
+              alert('Tidak dapat memuat data. Periksa koneksi Anda.');
+            }
           }
-        } catch (err) {
-          console.error('Gagal memuat data user:', err);
-          // Coba gunakan cache lokal jika ada
-          const cached = localStorage.getItem('currentUser');
-          if (cached) {
-            currentUser = JSON.parse(cached);
-            showMainPage();
-            showToast('Menggunakan data offline');
-          } else {
-            showPage('login');
-            alert('Tidak dapat memuat data. Periksa koneksi Anda.');
-          }
+        } else {
+          firebaseUser = null;
+          currentUser = null;
+          localStorage.removeItem('currentUser');
+          showPage('login');
         }
-      } else {
-        firebaseUser = null;
-        currentUser = null;
-        localStorage.removeItem('currentUser');
-        showPage('login');
-      }
-    });
+      });
+    }
 
     function showMainPage() {
       showPage('main');
@@ -429,6 +431,7 @@
       startMainFeatures();
     }
 
+    // Login form
     document.getElementById('login-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const email = document.getElementById('inp-email').value.trim();
@@ -437,12 +440,14 @@
       errorEl.style.display = 'none';
       try {
         await auth.signInWithEmailAndPassword(email, pass);
+        // onAuthStateChanged akan menangani
       } catch (err) {
         errorEl.textContent = err.message;
         errorEl.style.display = 'block';
       }
     });
 
+    // Password toggle
     document.getElementById('pass-toggle').addEventListener('click', function() {
       const inp = document.getElementById('inp-pass');
       const isPass = inp.type === 'password';
@@ -450,10 +455,12 @@
       this.classList.toggle('active', isPass);
     });
 
+    // Logout
     document.getElementById('btn-logout').addEventListener('click', async () => {
       await auth.signOut();
     });
 
+    // Profile dropdown
     document.getElementById('btn-profile').addEventListener('click', (e) => {
       e.stopPropagation();
       document.getElementById('profile-dropdown').classList.toggle('open');
@@ -462,7 +469,6 @@
       document.getElementById('profile-dropdown').classList.remove('open');
     });
 
-    /* ---------- USER UI ---------- */
     function getInitials(name) {
       const parts = (name || '').trim().split(/\s+/);
       if (!parts.length) return '??';
@@ -481,7 +487,6 @@
       document.getElementById('greet-name').textContent = name;
     }
 
-    /* ---------- MAIN FEATURES ---------- */
     function startMainFeatures() {
       updateGreeting();
       startClock();
@@ -511,7 +516,6 @@
     }
     setInterval(updateGreeting, 60000);
 
-    /* ---------- LOCATION ---------- */
     function requestLocation() {
       if (!navigator.geolocation) {
         setLocationText('GPS tidak didukung');
@@ -545,7 +549,6 @@
       }
     }
 
-    /* ---------- ATTENDANCE HISTORY ---------- */
     function loadAttendanceHistory() {
       if (!currentUser) return;
       const uid = currentUser.uid;
@@ -580,7 +583,6 @@
       document.getElementById('stat-jam-aktif').textContent = (todayCount * 1) + 'j';
     }
 
-    /* ---------- MESSAGING / NOTIFICATIONS ---------- */
     let notifUnread = false;
 
     function setupMessaging() {
@@ -604,7 +606,6 @@
       document.getElementById('notif-dot').classList.toggle('hidden', !hasUnread);
     }
 
-    // Notification page
     document.getElementById('btn-notif').addEventListener('click', async () => {
       showPage('notif');
       const list = document.getElementById('notif-list');
@@ -709,7 +710,6 @@
         const now = new Date();
         const dateStr = now.toISOString().split('T')[0];
         const timeStr = pad(now.getHours()) + ':' + pad(now.getMinutes());
-        // Fallback nama
         const name = currentUser.name || JSON.parse(localStorage.getItem('currentUser'))?.name || 'Tanpa Nama';
         try {
           await db.collection('attendances').add({
@@ -742,7 +742,6 @@
       showPage('main');
     }
 
-    /* ---------- TOAST ---------- */
     function showToast(msg) {
       const toast = document.getElementById('toast');
       toast.textContent = msg;
